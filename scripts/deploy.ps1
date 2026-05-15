@@ -8,15 +8,14 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";
 Write-Host "Checking GitHub login..."
 gh auth status | Out-Null
 
-$repoName = "colour-land-clothing-llp"
-$exists = gh repo view $repoName 2>$null
-if (-not $exists) {
-  Write-Host "Creating GitHub repo: $repoName"
-  gh repo create $repoName --public --source=. --remote=origin --push
+$remoteUrl = "https://github.com/purnithaa/ColourLand.git"
+if (-not (git remote get-url origin 2>$null)) {
+  git remote add origin $remoteUrl
 } else {
-  Write-Host "Pushing to existing repo..."
-  git push -u origin main
+  git remote set-url origin $remoteUrl
 }
+Write-Host "Pushing to $remoteUrl ..."
+git push -u origin main
 
 Write-Host ""
 Write-Host "GitHub push complete. Repo URL:"
