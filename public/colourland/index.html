@@ -444,12 +444,12 @@ hr{border:none;border-top:1px solid #f3f4f6;margin:1.5rem 0}
           <div style="font-size:13px;color:#888;margin-top:4px">Colour Land Clothing LLP</div>
         </div>
         <div class="card">
-          <div class="field-group"><label class="field-label">Username</label><input type="text" id="au" value="admin"></div>
-          <div class="field-group"><label class="field-label">Password</label><input type="password" id="ap" value="admin123" onkeydown="if(event.key==='Enter')doLogin()"></div>
+          <div class="field-group"><label class="field-label">Email</label><input type="email" id="au" placeholder="admin@colourland.com"></div>
+          <div class="field-group"><label class="field-label">Password</label><input type="password" id="ap" onkeydown="if(event.key==='Enter')doLogin()"></div>
           <div id="lerr" class="error-msg">Invalid credentials.</div>
           <div class="btn-row" style="margin-top:0.5rem"><button class="btn-primary" style="width:100%" onclick="doLogin()">Sign In</button></div>
           <div style="text-align:center;margin-top:1rem"><button class="btn-secondary" onclick="showSec('home',document.getElementById('tab-home'))">← Back to Home</button></div>
-          <div style="font-size:12px;color:#aaa;margin-top:1rem;text-align:center">admin / admin123</div>
+          <div style="font-size:12px;color:#aaa;margin-top:1rem;text-align:center">Use your Supabase admin email</div>
         </div>
       </div>
     </div>
@@ -713,11 +713,41 @@ function getSizes(t){
 // selections[idx] = { "34": 2, "36": 5, ... }
 let SEL = {};
 let ST = {company:null};
-let orders = JSON.parse(localStorage.getItem("clc2_orders")||"[]");
-let oCount = parseInt(localStorage.getItem("clc2_count")||"0");
+let orders = [];
 let loggedIn = false;
+let companyDbMap = {}; // catalogue id (honda) -> Supabase company uuid
 
-function save(){localStorage.setItem("clc2_orders",JSON.stringify(orders));localStorage.setItem("clc2_count",String(oCount));}
+const API = "";
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API + path, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    credentials: "same-origin",
+    ...options,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+async function loadCompanies() {
+  try {
+    const companies = await apiFetch("/api/companies");
+    companyDbMap = {};
+    COS.forEach((c) => {
+      const match = companies.find(
+        (row) => row.name.toLowerCase() === c.name.toLowerCase()
+      );
+      if (match) companyDbMap[c.id] = match.id;
+    });
+  } catch (e) {
+    console.error("Failed to load companies:", e);
+  }
+}
+
+function getCompanyId() {
+  return companyDbMap[ST.company] || null;
+}
 
 // ============ NAV ============
 function showSec(s,el){
@@ -994,7 +1024,15 @@ document.addEventListener("DOMContentLoaded", function(){
 });
 
 // ============ PLACE ORDER ============
-function placeOrder(){
+function closeReview(){
+  document.getElementById("review-modal").style.display="none";
+}
+function confirmAndPlace(){
+  closeReview();
+  placeOrder();
+}
+
+async function placeOrder(){
   const name  = document.getElementById("cn").value.trim();
   const email = document.getElementById("cem").value.trim();
   const phone = document.getElementById("cp").value.trim();
@@ -1023,6 +1061,9 @@ function placeOrder(){
   });
   const hasTemplate=TMPL_DATA!==null;
   if(!items.length && !hasTemplate){alert("Please select at least one item or upload an order template.");return;}
+  if(!items.length && hasTemplate){
+    items.push({name:"Employee order template: "+(TMPL_DATA.name||"uploaded"),size:"",qty:1});
+  }
   const logoPlacement = document.getElementById("logo-placement").value;
   const logoRemarks   = document.getElementById("logo-remarks").value.trim();
   const logoInfo = LOGO_DATA ? {
@@ -1032,20 +1073,62 @@ function placeOrder(){
     remarks: logoRemarks
   } : null;
 
-  oCount++;
-  const id="ORD"+String(oCount).padStart(3,"0");
   const co=COS.find(c=>c.id===ST.company);
+  const companyId = getCompanyId();
+  if(!companyId){
+    alert("Could not connect to company catalogue. Please refresh and try again.");
+    return;
+  }
   const now=new Date();
   const fullAddr=`${addr}, ${city}, ${state} – ${pin}`;
   const timeStr=now.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",hour12:true});
   const tmplInfo = TMPL_DATA ? {
     name: TMPL_DATA.name,
     size: TMPL_DATA.size,
-    rowCount: TMPL_DATA.rowCount,
-    dataUrl: TMPL_DATA.dataUrl
+    rowCount: TMPL_DATA.rowCount
   } : null;
+  const logoForDb = logoInfo ? {
+    name: logoInfo.name,
+    placement: logoInfo.placement,
+    remarks: logoInfo.remarks
+  } : null;
+
+  let saved;
+  try {
+    saved = await apiFetch("/api/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        company_id: companyId,
+        customer_name: name,
+        customer_phone: phone,
+        customer_company: coname,
+        delivery_address: fullAddr,
+        metadata: {
+          email,
+          branch,
+          city,
+          state,
+          pin,
+          catalogue: co.name,
+          time: timeStr,
+          logo: logoForDb,
+          template: tmplInfo
+        },
+        items: items.map((it) => ({
+          item_name: it.name,
+          size_name: it.size || null,
+          quantity: it.qty,
+          unit_price: 0
+        }))
+      })
+    });
+  } catch (e) {
+    alert("Failed to save order: " + e.message);
+    return;
+  }
+
+  const id = saved.order.order_number;
   const order={id,name,email,phone,companyName:coname,branch,address:addr,city,state,pin,fullAddress:fullAddr,company:co.name,items,logo:logoInfo,template:tmplInfo,date:now.toLocaleDateString("en-IN"),time:timeStr,dateRaw:now.toISOString().split("T")[0],status:"Pending"};
-  orders.unshift(order);save();
   ["s0","s1","s2","s3"].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display="none";});
   document.getElementById("s3").style.display="";
   document.getElementById("conf-id").textContent=id;
@@ -1168,12 +1251,33 @@ function newOrder(){
 }
 
 // ============ ADMIN ============
-function doLogin(){
-  const u=document.getElementById("au").value,p=document.getElementById("ap").value,err=document.getElementById("lerr");
-  if(u==="admin"&&p==="admin123"){loggedIn=true;err.style.display="none";document.getElementById("adm-login").style.display="none";document.getElementById("adm-dash").style.display="";renderAdmin();}
-  else err.style.display="block";
+async function loadAdminOrders(){
+  orders = await apiFetch("/api/admin/orders");
 }
-function doLogout(){loggedIn=false;document.getElementById("adm-login").style.display="";document.getElementById("adm-dash").style.display="none";}
+
+async function doLogin(){
+  const email=document.getElementById("au").value.trim();
+  const password=document.getElementById("ap").value;
+  const err=document.getElementById("lerr");
+  try{
+    await apiFetch("/api/admin/login",{method:"POST",body:JSON.stringify({email,password})});
+    loggedIn=true;
+    err.style.display="none";
+    document.getElementById("adm-login").style.display="none";
+    document.getElementById("adm-dash").style.display="";
+    await loadAdminOrders();
+    renderAdmin();
+  }catch(e){
+    err.style.display="block";
+  }
+}
+async function doLogout(){
+  try{ await apiFetch("/api/admin/logout",{method:"POST"}); }catch(e){}
+  loggedIn=false;
+  orders=[];
+  document.getElementById("adm-login").style.display="";
+  document.getElementById("adm-dash").style.display="none";
+}
 
 function renderAdmin(){
   const t=orders.length,p=orders.filter(o=>o.status==="Pending").length,ip=orders.filter(o=>o.status==="In Progress").length,d=orders.filter(o=>o.status==="Completed").length;
@@ -1228,7 +1332,20 @@ function renderTable(){
   }).join("");
 }
 
-function updSts(id,s){const o=orders.find(x=>x.id===id);if(o){o.status=s;save();renderAdmin();}}
+async function updSts(id,s){
+  const o=orders.find(x=>x.id===id);
+  if(!o||!o.dbId) return;
+  try{
+    await apiFetch("/api/admin/orders",{
+      method:"PATCH",
+      body:JSON.stringify({orderId:o.dbId,status:s})
+    });
+    o.status=s;
+    renderAdmin();
+  }catch(e){
+    alert("Failed to update status: "+e.message);
+  }
+}
 function clearF(){document.getElementById("sq").value="";document.getElementById("fc").value="";document.getElementById("fd").value="";renderTable();}
 
 function doExport(){
@@ -1490,6 +1607,7 @@ function downloadLogoFile(orderId, dataUrl, filename){
 
 // ============ INIT ============
 renderCos();
+loadCompanies();
 </script>
 </body>
 </html>

@@ -33,10 +33,16 @@ export interface Order {
 export interface OrderItem {
   id: string;
   order_id: string;
-  uniform_size_id: string;
+  uniform_size_id: string | null;
+  item_name: string;
+  size_name: string | null;
   quantity: number;
   unit_price: number;
   created_at: string;
+}
+
+export interface OrderWithCompany extends Order {
+  companies?: { name: string } | null;
 }
 
 // Company queries
@@ -89,11 +95,11 @@ export async function createOrder(order: Omit<Order, 'id' | 'created_at'>): Prom
   return data;
 }
 
-export async function getOrders(limit = 100, offset = 0): Promise<Order[]> {
+export async function getOrders(limit = 100, offset = 0): Promise<OrderWithCompany[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('orders')
-    .select('*')
+    .select('*, companies(name)')
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -137,7 +143,16 @@ export async function deleteOrder(id: string): Promise<void> {
 }
 
 // Order items queries
-export async function createOrderItems(items: Omit<OrderItem, 'id' | 'created_at'>[]): Promise<OrderItem[]> {
+export type CreateOrderItemInput = {
+  order_id: string;
+  uniform_size_id?: string | null;
+  item_name: string;
+  size_name?: string | null;
+  quantity: number;
+  unit_price: number;
+};
+
+export async function createOrderItems(items: CreateOrderItemInput[]): Promise<OrderItem[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('order_items')
@@ -159,7 +174,19 @@ export async function getOrderItems(orderId: string): Promise<OrderItem[]> {
   return data || [];
 }
 
-export async function getOrdersWithItems(limit = 100, offset = 0): Promise<(Order & { items: OrderItem[] })[]> {
+export async function getCompanyByName(name: string): Promise<Company | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('companies')
+    .select('*')
+    .ilike('name', name)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error;
+  return data || null;
+}
+
+export async function getOrdersWithItems(limit = 100, offset = 0): Promise<(OrderWithCompany & { items: OrderItem[] })[]> {
   const orders = await getOrders(limit, offset);
   
   const ordersWithItems = await Promise.all(

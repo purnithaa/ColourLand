@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getOrdersWithItems, updateOrderStatus, deleteOrder } from '@/lib/db';
+import { formatOrderForAdmin, formatStatusForDb } from '@/lib/order-utils';
 import { cookies } from 'next/headers';
 
 async function isAdmin(): Promise<boolean> {
@@ -17,7 +18,7 @@ export async function GET() {
     }
 
     const orders = await getOrdersWithItems();
-    return NextResponse.json(orders);
+    return NextResponse.json(orders.map(formatOrderForAdmin));
   } catch (error) {
     console.error('Error fetching orders:', error);
     return NextResponse.json(
@@ -46,8 +47,8 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const order = await updateOrderStatus(orderId, status);
-    return NextResponse.json(order);
+    const order = await updateOrderStatus(orderId, formatStatusForDb(status));
+    return NextResponse.json(formatOrderForAdmin({ ...order, items: [] }));
   } catch (error) {
     console.error('Error updating order:', error);
     return NextResponse.json(

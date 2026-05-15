@@ -41,9 +41,11 @@ create table if not exists public.orders (
 create table if not exists public.order_items (
   id uuid primary key default gen_random_uuid(),
   order_id uuid not null references public.orders(id) on delete cascade,
-  uniform_size_id uuid not null references public.uniform_sizes(id),
+  uniform_size_id uuid references public.uniform_sizes(id),
+  item_name text not null default '',
+  size_name text,
   quantity integer not null check (quantity > 0),
-  unit_price numeric(10, 2) not null,
+  unit_price numeric(10, 2) not null default 0,
   created_at timestamptz not null default now()
 );
 
