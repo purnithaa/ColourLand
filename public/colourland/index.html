@@ -378,7 +378,7 @@ hr{border:none;border-top:1px solid #f3f4f6;margin:1.5rem 0}
           </div>
 
           <div class="btn-row" style="margin-top:1.25rem">
-            <button class="btn-primary" onclick="placeOrder()">✅ Place Order</button>
+            <button class="btn-primary" data-place-order data-label="✅ Place Order" onclick="placeOrder()">✅ Place Order</button>
             <button class="btn-secondary" onclick="goStep(1)">← Back</button>
           </div>
         </div>
@@ -509,7 +509,7 @@ hr{border:none;border-top:1px solid #f3f4f6;margin:1.5rem 0}
     <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:8px 12px;font-size:12px;color:#713f12;font-weight:500;margin-bottom:0.5rem">⚠️ GST @5% &amp; Transport charges extra &nbsp;|&nbsp; Extra sizes attract additional charges</div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeReview()">← Edit Order</button>
-      <button class="btn-primary" onclick="confirmAndPlace()" style="background:#16a34a">✅ Confirm &amp; Place Order</button>
+      <button class="btn-primary" data-place-order data-label="✅ Confirm & Place Order" onclick="confirmAndPlace()" style="background:#16a34a">✅ Confirm &amp; Place Order</button>
     </div>
   </div>
 </div>
@@ -715,23 +715,31 @@ let SEL = {};
 let ST = {company:null};
 let orders = [];
 let loggedIn = false;
-let companyDbMap = {}; // catalogue id (honda) -> Supabase company uuid
+let companyDbMap = {};
+let companiesReady = false;
+let companiesLoadError = "";
 
-const API = "";
+const API_BASE = "";
 
 async function apiFetch(path, options = {}) {
-  const res = await fetch(API + path, {
+  const res = await fetch(API_BASE + path, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     credentials: "same-origin",
     ...options,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Request failed");
+  if (!res.ok) {
+    const msg = data.details ? `${data.error}: ${data.details}` : (data.error || `Request failed (${res.status})`);
+    throw new Error(msg);
+  }
   return data;
 }
 
 async function loadCompanies() {
+  companiesLoadError = "";
   try {
+    const health = await apiFetch("/api/health");
+    if (!health.ok) throw new Error(health.error || "API not ready");
     const companies = await apiFetch("/api/companies");
     companyDbMap = {};
     COS.forEach((c) => {
@@ -740,13 +748,31 @@ async function loadCompanies() {
       );
       if (match) companyDbMap[c.id] = match.id;
     });
+    companiesReady = Object.keys(companyDbMap).length > 0;
+    if (!companiesReady) {
+      companiesLoadError = "No companies found in database. Run supabase/schema.sql in Supabase.";
+    }
   } catch (e) {
+    companiesReady = false;
+    companiesLoadError = e.message || "Could not load companies from server";
     console.error("Failed to load companies:", e);
   }
 }
 
 function getCompanyId() {
   return companyDbMap[ST.company] || null;
+}
+
+function getCatalogueName() {
+  const co = COS.find((c) => c.id === ST.company);
+  return co ? co.name : "";
+}
+
+function setPlaceOrderLoading(loading) {
+  document.querySelectorAll("[data-place-order]").forEach((btn) => {
+    btn.disabled = loading;
+    btn.textContent = loading ? "Saving order…" : btn.dataset.label || btn.textContent;
+  });
 }
 
 // ============ NAV ============
@@ -761,12 +787,17 @@ function showSec(s,el){
   }
 }
 
-function goStep(n,co){
+async function goStep(n,co){
   ["s0","s1","s2","s3"].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display="none";});
   if(co)ST.company=co;
   const target=document.getElementById("s"+n);
   if(target)target.style.display="";
-  if(n===1){SEL={};renderCatalog();}
+  if(n===1){
+    SEL={};
+    if(!companiesReady) await loadCompanies();
+    if(companiesLoadError){ alert(companiesLoadError); return; }
+    renderCatalog();
+  }
   if(n===2)renderPreview();
 }
 
@@ -1074,11 +1105,15 @@ async function placeOrder(){
   } : null;
 
   const co=COS.find(c=>c.id===ST.company);
+  if(!co){ alert("Please select a company first."); return; }
+  if(!companiesReady) await loadCompanies();
   const companyId = getCompanyId();
-  if(!companyId){
-    alert("Could not connect to company catalogue. Please refresh and try again.");
+  const catalogue = getCatalogueName();
+  if(!companyId && !catalogue){
+    alert(companiesLoadError || "Could not connect to company catalogue. Refresh the page and try again.");
     return;
   }
+  setPlaceOrderLoading(true);
   const now=new Date();
   const fullAddr=`${addr}, ${city}, ${state} – ${pin}`;
   const timeStr=now.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",hour12:true});
@@ -1098,7 +1133,8 @@ async function placeOrder(){
     saved = await apiFetch("/api/orders", {
       method: "POST",
       body: JSON.stringify({
-        company_id: companyId,
+        company_id: companyId || undefined,
+        catalogue,
         customer_name: name,
         customer_phone: phone,
         customer_company: coname,
@@ -1109,7 +1145,7 @@ async function placeOrder(){
           city,
           state,
           pin,
-          catalogue: co.name,
+          catalogue,
           time: timeStr,
           logo: logoForDb,
           template: tmplInfo
@@ -1123,8 +1159,11 @@ async function placeOrder(){
       })
     });
   } catch (e) {
-    alert("Failed to save order: " + e.message);
+    alert("Failed to save order to database:\n\n" + e.message);
+    setPlaceOrderLoading(false);
     return;
+  } finally {
+    setPlaceOrderLoading(false);
   }
 
   const id = saved.order.order_number;
@@ -1607,7 +1646,9 @@ function downloadLogoFile(orderId, dataUrl, filename){
 
 // ============ INIT ============
 renderCos();
-loadCompanies();
+loadCompanies().then(() => {
+  if (companiesLoadError) console.warn("Colour Land:", companiesLoadError);
+});
 </script>
 </body>
 </html>

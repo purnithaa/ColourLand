@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { verifyPassword } from '@/lib/auth';
 import { cookies } from 'next/headers';
 
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = await createClient();
+    const supabase = createAdminClient();
 
     // Get admin user from database
     const { data, error } = await supabase

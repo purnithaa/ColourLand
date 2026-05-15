@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
-import { createOrder, createOrderItems, getCompanyById } from '@/lib/db';
+import {
+  createOrder,
+  createOrderItems,
+  getCompanyById,
+  getCompanyByName,
+} from '@/lib/db';
 import { generateRandomOrderNumber } from '@/lib/utils';
 
 type OrderItemInput = {
   uniform_size_id?: string;
   item_name: string;
-  size_name?: string;
+  size_name?: string | null;
   quantity: number;
   unit_price?: number;
 };
@@ -22,11 +27,20 @@ type OrderMetadata = {
   template?: { name?: string; rowCount?: number };
 };
 
+function supabaseErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message: string }).message);
+  }
+  if (error instanceof Error) return error.message;
+  return 'Unknown database error';
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const {
       company_id,
+      catalogue,
       customer_name,
       customer_phone,
       customer_company,
@@ -35,7 +49,8 @@ export async function POST(request: Request) {
       metadata,
       items,
     } = body as {
-      company_id: string;
+      company_id?: string;
+      catalogue?: string;
       customer_name: string;
       customer_phone: string;
       customer_company: string;
@@ -46,7 +61,6 @@ export async function POST(request: Request) {
     };
 
     if (
-      !company_id ||
       !customer_name ||
       !customer_phone ||
       !customer_company ||
@@ -54,6 +68,24 @@ export async function POST(request: Request) {
     ) {
       return NextResponse.json(
         { error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    let resolvedCompanyId = company_id;
+    const catalogueName = catalogue || metadata?.catalogue;
+
+    if (!resolvedCompanyId && catalogueName) {
+      const company = await getCompanyByName(catalogueName);
+      resolvedCompanyId = company?.id;
+    }
+
+    if (!resolvedCompanyId) {
+      return NextResponse.json(
+        {
+          error:
+            'Could not resolve company. Run supabase/schema.sql and ensure companies exist (Honda, Tata, etc.).',
+        },
         { status: 400 }
       );
     }
@@ -77,14 +109,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const company = await getCompanyById(company_id);
+    const company = await getCompanyById(resolvedCompanyId);
     if (!company) {
       return NextResponse.json({ error: 'Invalid company' }, { status: 400 });
     }
 
     const notesPayload = {
       ...(metadata || {}),
-      catalogue: metadata?.catalogue || company.name,
+      catalogue: catalogueName || company.name,
     };
 
     const total_amount = orderItems.reduce(
@@ -94,7 +126,7 @@ export async function POST(request: Request) {
 
     const order = await createOrder({
       order_number: generateRandomOrderNumber(),
-      company_id,
+      company_id: resolvedCompanyId,
       customer_name,
       customer_phone,
       customer_company,
@@ -120,7 +152,10 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Error creating order:', error);
     return NextResponse.json(
-      { error: 'Failed to create order' },
+      {
+        error: 'Failed to create order',
+        details: supabaseErrorMessage(error),
+      },
       { status: 500 }
     );
   }

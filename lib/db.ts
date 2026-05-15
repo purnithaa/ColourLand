@@ -1,4 +1,8 @@
-import { createClient } from './supabase/server';
+import { createAdminClient } from './supabase/admin';
+
+function db() {
+  return createAdminClient();
+}
 
 export interface Company {
   id: string;
@@ -47,7 +51,7 @@ export interface OrderWithCompany extends Order {
 
 // Company queries
 export async function getCompanies(): Promise<Company[]> {
-  const supabase = await createClient();
+  const supabase = db();
   const { data, error } = await supabase
     .from('companies')
     .select('*')
@@ -58,7 +62,7 @@ export async function getCompanies(): Promise<Company[]> {
 }
 
 export async function getCompanyById(id: string): Promise<Company | null> {
-  const supabase = await createClient();
+  const supabase = db();
   const { data, error } = await supabase
     .from('companies')
     .select('*')
@@ -71,7 +75,7 @@ export async function getCompanyById(id: string): Promise<Company | null> {
 
 // Uniform size queries
 export async function getUniformSizesByCompany(companyId: string): Promise<UniformSize[]> {
-  const supabase = await createClient();
+  const supabase = db();
   const { data, error } = await supabase
     .from('uniform_sizes')
     .select('*')
@@ -84,7 +88,7 @@ export async function getUniformSizesByCompany(companyId: string): Promise<Unifo
 
 // Order queries
 export async function createOrder(order: Omit<Order, 'id' | 'created_at'>): Promise<Order> {
-  const supabase = await createClient();
+  const supabase = db();
   const { data, error } = await supabase
     .from('orders')
     .insert([order])
@@ -96,7 +100,7 @@ export async function createOrder(order: Omit<Order, 'id' | 'created_at'>): Prom
 }
 
 export async function getOrders(limit = 100, offset = 0): Promise<OrderWithCompany[]> {
-  const supabase = await createClient();
+  const supabase = db();
   const { data, error } = await supabase
     .from('orders')
     .select('*, companies(name)')
@@ -108,7 +112,7 @@ export async function getOrders(limit = 100, offset = 0): Promise<OrderWithCompa
 }
 
 export async function getOrderById(id: string): Promise<Order | null> {
-  const supabase = await createClient();
+  const supabase = db();
   const { data, error } = await supabase
     .from('orders')
     .select('*')
@@ -120,7 +124,7 @@ export async function getOrderById(id: string): Promise<Order | null> {
 }
 
 export async function updateOrderStatus(id: string, status: string): Promise<Order> {
-  const supabase = await createClient();
+  const supabase = db();
   const { data, error } = await supabase
     .from('orders')
     .update({ status })
@@ -133,7 +137,7 @@ export async function updateOrderStatus(id: string, status: string): Promise<Ord
 }
 
 export async function deleteOrder(id: string): Promise<void> {
-  const supabase = await createClient();
+  const supabase = db();
   const { error } = await supabase
     .from('orders')
     .delete()
@@ -153,7 +157,7 @@ export type CreateOrderItemInput = {
 };
 
 export async function createOrderItems(items: CreateOrderItemInput[]): Promise<OrderItem[]> {
-  const supabase = await createClient();
+  const supabase = db();
   const { data, error } = await supabase
     .from('order_items')
     .insert(items)
@@ -164,7 +168,7 @@ export async function createOrderItems(items: CreateOrderItemInput[]): Promise<O
 }
 
 export async function getOrderItems(orderId: string): Promise<OrderItem[]> {
-  const supabase = await createClient();
+  const supabase = db();
   const { data, error } = await supabase
     .from('order_items')
     .select('*')
@@ -175,7 +179,7 @@ export async function getOrderItems(orderId: string): Promise<OrderItem[]> {
 }
 
 export async function getCompanyByName(name: string): Promise<Company | null> {
-  const supabase = await createClient();
+  const supabase = db();
   const { data, error } = await supabase
     .from('companies')
     .select('*')
