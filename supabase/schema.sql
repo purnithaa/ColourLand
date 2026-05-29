@@ -18,6 +18,7 @@ create table if not exists public.uniform_sizes (
   size_name text not null,
   price numeric(10, 2) not null default 0,
   description text,
+  company_name text,
   created_at timestamptz not null default now()
 );
 

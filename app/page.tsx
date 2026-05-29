@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
 
 export default function HomePage() {
-  redirect('/colourland/')
+  redirect('/colourland/index.html')
 }
